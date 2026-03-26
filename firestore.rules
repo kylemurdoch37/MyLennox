@@ -1,0 +1,247 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - firstName: string (required)
+    //   - lastName: string (required)
+    //   - email: string (required, email format)
+    //   - phone: string (optional)
+    //   - nationality: string (optional)
+    //   - dob: string (optional, date format)
+    //   - tier: integer (required, 1-4)
+    //   - role: string (optional, admin or user)
+    //   - workplace: string (optional)
+    //   - nearestHub: string (optional)
+    //   - commuteType: list (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: vehicles
+    // Document ID: vehicleId
+    // Fields:
+    //   - uid: string (required, owner)
+    //   - plate: string (required)
+    //   - make: string (optional)
+    //   - model: string (optional)
+    //   - color: string (optional)
+    //   - registeredCountry: string (optional)
+    //   - autoPayEnabled: bool (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: payments
+    // Document ID: paymentId
+    // Fields:
+    //   - uid: string (required, user)
+    //   - vehicleId: string (optional)
+    //   - amount: number (required)
+    //   - type: string (required, enum: congestion, road-tax, metro, fine)
+    //   - status: string (required, enum: paid, unpaid, pcn)
+    //   - timestamp: timestamp (required)
+    //   - entryTime: timestamp (optional)
+    //
+    // Collection: hubs
+    // Document ID: hubId
+    // Fields:
+    //   - name: string (required)
+    //   - location: string (required)
+    //   - description: string (optional)
+    //   - shops: list (optional)
+    //   - restaurants: list (optional)
+    //   - events: list (optional)
+    //
+    // Collection: bank_accounts
+    // Document ID: accountId
+    // Fields:
+    //   - id: string (required)
+    //   - uid: string (required)
+    //   - accountNumber: string (required)
+    //   - sortCode: string (required)
+    //   - balance: number (required)
+    //   - currency: string (required, L$ or GBP)
+    //   - type: string (required, current or savings)
+    //   - createdAt: string (required, ISO date)
+    //
+    // Collection: housing_applications
+    // Document ID: applicationId
+    // Fields:
+    //   - id: string (required)
+    //   - uid: string (required)
+    //   - status: string (required, pending, approved, denied)
+    //   - propertyType: string (required)
+    //   - preferredHub: string (required)
+    //   - submissionDate: string (required, ISO date)
+    //
+    // Collection: pr_applications
+    // Document ID: applicationId
+    // Fields:
+    //   - id: string (required)
+    //   - uid: string (required)
+    //   - status: string (required, pending, review, approved, denied)
+    //   - yearsOfWork: number (required)
+    //   - employerReference: string (required)
+    //   - submissionDate: string (required, ISO date)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "KyleMurdoch37@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidTimestamp(field) {
+      return request.resource.data[field] is timestamp;
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z?$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'firstName', 'lastName', 'email', 'tier', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.firstName is string && data.firstName.size() > 0 && data.firstName.size() < 100 &&
+             data.lastName is string && data.lastName.size() > 0 && data.lastName.size() < 100 &&
+             isValidEmail(data.email) &&
+             data.tier is int && data.tier >= 1 && data.tier <= 4 &&
+             (!('role' in data) || data.role in ['admin', 'user']) &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidVehicle(data) {
+      return hasRequiredFields(['uid', 'plate', 'autoPayEnabled', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             data.plate is string && data.plate.size() > 0 && data.plate.size() < 20 &&
+             data.autoPayEnabled is bool &&
+             isValidDateString(data.createdAt);
+    }
+
+    function isValidPayment(data) {
+      return hasRequiredFields(['uid', 'amount', 'type', 'status', 'timestamp']) &&
+             data.uid == request.auth.uid &&
+             data.amount is number && data.amount >= 0 &&
+             data.type in ['congestion', 'road-tax', 'metro', 'fine'] &&
+             data.status in ['paid', 'unpaid', 'pcn'] &&
+             isValidDateString(data.timestamp);
+    }
+
+    function isValidHousingApplication(data) {
+      return hasRequiredFields(['id', 'uid', 'status', 'propertyType', 'preferredHub', 'submissionDate']) &&
+             data.uid == request.auth.uid &&
+             data.status in ['pending', 'approved', 'denied'] &&
+             data.propertyType is string &&
+             data.preferredHub is string &&
+             isValidDateString(data.submissionDate);
+    }
+
+    function isValidPRApplication(data) {
+      return hasRequiredFields(['id', 'uid', 'status', 'yearsOfWork', 'employerReference', 'submissionDate']) &&
+             data.uid == request.auth.uid &&
+             data.status in ['pending', 'review', 'approved', 'denied'] &&
+             data.yearsOfWork is number &&
+             data.employerReference is string &&
+             isValidDateString(data.submissionDate);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) || isAdmin()) &&
+                    request.resource.data.tier == resource.data.tier; // Tier cannot be changed by user
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidVehicle(request.resource.data);
+      allow update: if isAuthenticated() && isValidVehicle(request.resource.data) && isDocOwner();
+      allow delete: if isAuthenticated() && isDocOwner();
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidPayment(request.resource.data);
+      allow update: if isAuthenticated() && isValidPayment(request.resource.data) && isDocOwner() &&
+                    resource.data.status == 'unpaid'; // Only unpaid payments can be updated (to paid)
+    }
+
+    match /hubs/{hubId} {
+      allow read: if true; // Hub directory is public
+      allow write: if isAdmin();
+    }
+
+    match /bank_accounts/{accountId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update: if isDocOwner() || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /bank_transactions/{transactionId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /housing_applications/{applicationId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidHousingApplication(request.resource.data);
+      allow update: if isAuthenticated() && isAdmin();
+    }
+
+    match /pr_applications/{applicationId} {
+      allow read: if isDocOwner() || isAdmin();
+      allow create: if isAuthenticated() && isValidPRApplication(request.resource.data);
+      allow update: if isAuthenticated() && isAdmin();
+    }
+
+    // Default deny
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

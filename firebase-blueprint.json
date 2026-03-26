@@ -1,0 +1,148 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "nationality": { "type": "string" },
+        "dob": { "type": "string", "format": "date" },
+        "tier": { "type": "integer", "enum": [1, 2, 3, 4] },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "workplace": { "type": "string" },
+        "nearestHub": { "type": "string" },
+        "commuteType": { "type": "array", "items": { "type": "string" } },
+        "lennoxPassId": { "type": "string" },
+        "placeOfBirth": { "type": "string" },
+        "occupation": { "type": "string" },
+        "lhdbUnit": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "firstName", "lastName", "email", "tier"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "Vehicle registered to a user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "plate": { "type": "string" },
+        "make": { "type": "string" },
+        "model": { "type": "string" },
+        "color": { "type": "string" },
+        "registeredCountry": { "type": "string" },
+        "autoPayEnabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "plate"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment record for transport services",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "vehicleId": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["congestion", "road-tax", "metro", "fine"] },
+        "status": { "type": "string", "enum": ["paid", "unpaid", "pcn"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "entryTime": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "amount", "type", "status", "timestamp"]
+    },
+    "Hub": {
+      "title": "Hub",
+      "description": "Lennox Hub information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "description": { "type": "string" },
+        "shops": { "type": "array", "items": { "type": "object" } },
+        "restaurants": { "type": "array", "items": { "type": "object" } },
+        "events": { "type": "array", "items": { "type": "object" } }
+      },
+      "required": ["name"]
+    },
+    "BankAccount": {
+      "title": "BankAccount",
+      "description": "Bank account information",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "sortCode": { "type": "string" },
+        "balance": { "type": "number" },
+        "currency": { "type": "string", "enum": ["L$", "GBP"] },
+        "type": { "type": "string", "enum": ["current", "savings"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "accountNumber", "sortCode", "balance", "currency", "type", "createdAt"]
+    },
+    "HousingApplication": {
+      "title": "HousingApplication",
+      "description": "Application for housing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "denied"] },
+        "propertyType": { "type": "string" },
+        "preferredHub": { "type": "string" },
+        "submissionDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "status", "propertyType", "preferredHub", "submissionDate"]
+    },
+    "PRApplication": {
+      "title": "PRApplication",
+      "description": "Application for permanent residency",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "review", "approved", "denied"] },
+        "yearsOfWork": { "type": "number" },
+        "employerReference": { "type": "string" },
+        "submissionDate": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "status", "yearsOfWork", "employerReference", "submissionDate"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/vehicles/{vehicleId}": {
+      "schema": "Vehicle",
+      "description": "Registered vehicles"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Payment records"
+    },
+    "/hubs/{hubId}": {
+      "schema": "Hub",
+      "description": "Hub directory"
+    },
+    "/bank_accounts/{accountId}": {
+      "schema": "BankAccount",
+      "description": "Bank accounts"
+    },
+    "/housing_applications/{applicationId}": {
+      "schema": "HousingApplication",
+      "description": "Housing applications"
+    },
+    "/pr_applications/{applicationId}": {
+      "schema": "PRApplication",
+      "description": "PR applications"
+    }
+  }
+}

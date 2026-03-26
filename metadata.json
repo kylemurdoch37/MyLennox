@@ -1,0 +1,8 @@
+{
+  "name": "MyLennox",
+  "description": "The official government services app for the Republic of Lennox. Unified platform for citizens, permanent residents, workers, and visitors to manage transport, Hub services, and more.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
