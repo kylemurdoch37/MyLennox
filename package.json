@@ -27,7 +27,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.38.0",
     "mrz": "^5.0.2",
-    "@capawesome-team/capacitor-nfc": "^7.0.0",
+    "@capgo/capacitor-nfc": "^8.0.18",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
