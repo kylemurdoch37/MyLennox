@@ -1,12 +1,23 @@
+/// <reference types="vite/client" />
 import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getAuth, connectAuthEmulator } from 'firebase/auth';
+import { getFirestore, doc, getDocFromServer, connectFirestoreEmulator } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase SDK
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth();
+
+// --- Local emulator support ---
+// Set VITE_USE_EMULATORS=true in your .env to use Firebase Emulators locally.
+// Run:  npx firebase emulators:start
+// UI:   http://localhost:4000
+if (import.meta.env.VITE_USE_EMULATORS === 'true') {
+  connectFirestoreEmulator(db, 'localhost', 8080);
+  connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
+  console.info('[MyLennox] Using Firebase Emulators (Firestore :8080, Auth :9099)');
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -60,6 +71,8 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 async function testConnection() {
+  // Skip connection test when using emulators (emulators may not be running at import time)
+  if (import.meta.env.VITE_USE_EMULATORS === 'true') return;
   try {
     await getDocFromServer(doc(db, 'test', 'connection'));
   } catch (error) {

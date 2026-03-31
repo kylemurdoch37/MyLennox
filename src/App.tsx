@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { NFCService } from './nfc-service';
 import { scanDocumentMRZ, MRZScanError, MRZScanResult } from './mrz-service';
-import { auth, db, handleFirestoreError, OperationType } from './firebase';
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, onSnapshot, serverTimestamp, Timestamp, addDoc } from 'firebase/firestore';
+import {
+  auth, db, handleFirestoreError, OperationType,
+  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc,
+} from './db';
+import type { AuthUser } from './db';
 import { UserProfile, UserTier, Vehicle, PaymentRecord, Hub, BankAccount, BankTransaction, HousingApplication, PRApplication } from './types';
 import { translations, Language } from './translations';
 import { Button, Input, Card, Badge } from './components/UI';
@@ -27,7 +30,7 @@ const APP_TAGLINE_GAELIC = "An Lennox agad, nad phòcaid";
 
 // --- Main App Component ---
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState<
@@ -60,7 +63,7 @@ export default function App() {
           const docRef = doc(db, 'users', firebaseUser.uid);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
+            setProfile(docSnap.data() as unknown as UserProfile);
             setScreen('dashboard');
           } else {
             // If user exists but no profile, they might be in registration
