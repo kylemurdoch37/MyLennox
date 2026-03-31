@@ -27,7 +27,7 @@
     "lucide-react": "^0.546.0",
     "motion": "^12.38.0",
     "mrz": "^5.0.2",
-    "phonegap-nfc": "^1.2.0",
+    "@capawesome-team/capacitor-nfc": "^7.0.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
