@@ -111,7 +111,7 @@ function FleetTab({ vessels }: { vessels: MarineVessel[] }) {
             { key: 'lastInspection', header: 'Last Inspection', render: r => fmtDate(r.lastInspection ?? '') },
           ]}
           data={filtered}
-          onRowClick={setSelected}
+          onRowClick={row => setSelected(row)}
         />
       </GovCard>
 

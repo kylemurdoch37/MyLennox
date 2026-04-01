@@ -201,7 +201,7 @@ function ApplicationsTab({
             { key: 'createdAt',      header: 'Date',    render: r => fmtDate(r.createdAt) },
           ]}
           data={filtered}
-          onRowClick={setSelected}
+          onRowClick={row => setSelected(row)}
           emptyMessage="No applications match your filters."
         />
       </GovCard>

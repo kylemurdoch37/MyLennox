@@ -218,7 +218,7 @@ function RoutesTab({ routes, canManage }: { routes: MetroRoute[]; canManage: boo
             { key: 'divertedVia',    header: 'Notes',      render: r => r.divertedVia ?? '—' },
           ]}
           data={routes}
-          onRowClick={setSelected}
+          onRowClick={row => setSelected(row)}
         />
       </GovCard>
 

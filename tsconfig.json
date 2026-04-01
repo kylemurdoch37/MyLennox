@@ -1,4 +1,6 @@
 {
+  "include": ["src", "scripts", "capacitor.config.ts", "vite.config.ts"],
+  "exclude": ["node_modules", "staff-portal", "android", "ios", "dist"],
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,
