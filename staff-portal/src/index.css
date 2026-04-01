@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+:root {
+  --gov-navy:   #1e3a5f;
+  --gov-blue:   #2d6a9f;
+  --gov-green:  #2d7a4f;
+  --gov-gold:   #c9a227;
+  --gov-bg:     #f0f2f5;
+  --gov-surface:#ffffff;
+  --gov-border: #d1d9e0;
+  --gov-text:   #1a1a2e;
+  --gov-muted:  #6b7a8d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  background: var(--gov-bg);
+  color: var(--gov-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }

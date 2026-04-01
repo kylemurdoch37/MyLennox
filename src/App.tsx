@@ -1,7 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { auth, db, handleFirestoreError, OperationType } from './firebase';
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, collection, query, where, onSnapshot, serverTimestamp, Timestamp, addDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { NFCService } from './nfc-service';
+import { scanDocumentMRZ, MRZScanError, MRZScanResult } from './mrz-service';
+import {
+  auth, db, handleFirestoreError, OperationType,
+  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  doc, getDoc, setDoc, collection, query, where, onSnapshot, addDoc,
+} from './db';
+import type { AuthUser } from './db';
 import { UserProfile, UserTier, Vehicle, PaymentRecord, Hub, BankAccount, BankTransaction, HousingApplication, PRApplication } from './types';
 import { translations, Language } from './translations';
 import { Button, Input, Card, Badge } from './components/UI';
@@ -25,12 +30,12 @@ const APP_TAGLINE_GAELIC = "An Lennox agad, nad phòcaid";
 
 // --- Main App Component ---
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState<
-    'welcome' | 'login' | 'lennoxpass-method' | 'lennoxpass-nfc' | 'lennoxpass-manual' | 
-    'lennoxpass-success' | 'lennoxpass-details' | 'account-type' | 'details' | 'sms' | 
+    'welcome' | 'login' | 'lennoxpass-method' | 'lennoxpass-nfc' | 'lennoxpass-manual' | 'lennoxpass-mrz' |
+    'lennoxpass-success' | 'lennoxpass-details' | 'account-type' | 'details' | 'sms' |
     'work' | 'vehicle' | 'permissions' | 'guest-explanation' | 'success' | 'dashboard'
   >('welcome');
   const [registrationData, setRegistrationData] = useState<Partial<UserProfile & { password?: string, plate?: string }>>({});
@@ -58,7 +63,7 @@ export default function App() {
           const docRef = doc(db, 'users', firebaseUser.uid);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
-            setProfile(docSnap.data() as UserProfile);
+            setProfile(docSnap.data() as unknown as UserProfile);
             setScreen('dashboard');
           } else {
             // If user exists but no profile, they might be in registration
@@ -185,9 +190,10 @@ export default function App() {
           {screen === 'welcome' && <WelcomeScreen onNext={(s) => setScreen(s)} language={language} onGuest={() => { setIsGuest(true); setScreen('guest-explanation'); }} />}
           {screen === 'login' && <LoginScreen onBack={() => setScreen('welcome')} onNext={() => setScreen('dashboard')} onDemoLogin={handleDemoLogin} language={language} />}
           {screen === 'lennoxpass-method' && <LennoxpassVerificationMethodScreen onBack={() => setScreen('welcome')} onNext={(s) => setScreen(s)} language={language} />}
-          {screen === 'lennoxpass-nfc' && <NFCScreen onBack={() => setScreen('lennoxpass-method')} onNext={() => setScreen('lennoxpass-success')} language={language} />}
+          {screen === 'lennoxpass-nfc' && <NFCScreen onBack={() => setScreen('lennoxpass-method')} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('lennoxpass-success'); }} language={language} />}
+          {screen === 'lennoxpass-mrz' && <MRZScannerScreen onBack={() => setScreen('lennoxpass-method')} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('lennoxpass-success'); }} language={language} />}
           {screen === 'lennoxpass-manual' && <ManualEntryScreen onBack={() => setScreen('lennoxpass-method')} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('lennoxpass-success'); }} language={language} />}
-          {screen === 'lennoxpass-success' && <VerificationSuccessScreen onBack={() => setScreen('lennoxpass-method')} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('details'); }} language={language} />}
+          {screen === 'lennoxpass-success' && <VerificationSuccessScreen onBack={() => setScreen('lennoxpass-method')} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('details'); }} language={language} scannedLennoxPassId={registrationData.lennoxPassId} />}
           {screen === 'lennoxpass-details' && <LennoxpassDetailsScreen onBack={() => setScreen('details')} initialData={registrationData} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('permissions'); }} language={language} />}
           {screen === 'account-type' && <AccountTypeSelectionScreen onBack={() => setScreen('welcome')} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('details'); }} language={language} />}
           {screen === 'details' && <DetailsScreen onBack={() => setScreen(registrationData.tier === UserTier.CITIZEN || registrationData.tier === UserTier.PR ? 'lennoxpass-success' : 'account-type')} tier={registrationData.tier!} initialData={registrationData} onNext={(data) => { setRegistrationData(prev => ({ ...prev, ...data })); setScreen('sms'); }} language={language} />}
@@ -556,7 +562,7 @@ function LennoxpassVerificationMethodScreen({ onBack, onNext, language }: { onBa
           <Button variant="outline" className="w-full mt-4 py-2 text-[10px] font-bold tracking-widest">{t.enter_manually_btn}</Button>
         </Card>
 
-        <Card className="p-5 border-2 border-[#141414]/5 hover:border-[#141414] transition-all cursor-pointer group opacity-50">
+        <Card className="p-5 border-2 border-[#141414]/5 hover:border-[#141414] transition-all cursor-pointer group" onClick={() => onNext('lennoxpass-mrz')}>
           <div className="flex items-start gap-4">
             <div className="text-2xl">📸</div>
             <div>
@@ -565,7 +571,7 @@ function LennoxpassVerificationMethodScreen({ onBack, onNext, language }: { onBa
               <p className="text-[10px] font-medium leading-relaxed">{t.scan_camera_instruction}</p>
             </div>
           </div>
-          <Button variant="ghost" disabled className="w-full mt-4 py-2 text-[10px] font-bold tracking-widest">{t.scan_camera_btn}</Button>
+          <Button className="w-full mt-4 py-2 text-[10px] font-bold tracking-widest">{t.scan_camera_btn}</Button>
         </Card>
 
         <div className="flex items-start gap-2 p-4 bg-blue-50 rounded-2xl">
@@ -577,56 +583,125 @@ function LennoxpassVerificationMethodScreen({ onBack, onNext, language }: { onBa
   );
 }
 
-function NFCScreen({ onBack, onNext, language }: { onBack: () => void; onNext: () => void; language: Language }) {
-  const t = translations[language];
-  const [scanning, setScanning] = useState(true);
+type NFCScreenState = 'checking' | 'not-supported' | 'disabled' | 'scanning' | 'success' | 'error';
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setScanning(false);
-      setTimeout(onNext, 1000);
-    }, 3000);
-    return () => clearTimeout(timer);
+function NFCScreen({ onBack, onNext, language }: { onBack: () => void; onNext: (data: { lennoxPassId: string }) => void; language: Language }) {
+  const t = translations[language];
+  const [state, setState] = useState<NFCScreenState>('checking');
+  const [errorMsg, setErrorMsg] = useState('');
+  const cleanupRef = useRef<(() => Promise<void>) | null>(null);
+
+  const handleTag = useCallback((result: { lennoxPassId: string }) => {
+    setState('success');
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+    setTimeout(() => onNext({ lennoxPassId: result.lennoxPassId }), 900);
   }, [onNext]);
 
+  const handleError = useCallback((msg: string) => {
+    setErrorMsg(msg);
+    setState('error');
+  }, []);
+
+  const startScan = useCallback(async () => {
+    setState('checking');
+    setErrorMsg('');
+
+    const supported = await NFCService.isSupported();
+    if (!supported) {
+      setState('not-supported');
+      return;
+    }
+    const enabled = await NFCService.isEnabled();
+    if (!enabled) {
+      setState('disabled');
+      return;
+    }
+
+    setState('scanning');
+    const cleanup = await NFCService.startScanning(handleTag, handleError);
+    cleanupRef.current = cleanup;
+  }, [handleTag, handleError]);
+
+  useEffect(() => {
+    startScan();
+    return () => {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    };
+  }, [startScan]);
+
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="p-8 flex flex-col h-full bg-white items-center justify-center text-center"
     >
       <div className="flex-1 flex flex-col items-center justify-center gap-8">
         <div className="relative">
-          <motion.div 
-            animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
-            transition={{ repeat: Infinity, duration: 2 }}
-            className="absolute inset-0 bg-blue-500 rounded-full blur-3xl"
-          />
-          <div className="relative w-32 h-32 bg-[#141414] rounded-full flex items-center justify-center text-white">
-            <Zap className={cn("w-12 h-12", scanning ? "animate-pulse" : "text-emerald-400")} />
+          {state === 'scanning' && (
+            <motion.div
+              animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
+              transition={{ repeat: Infinity, duration: 2 }}
+              className="absolute inset-0 bg-blue-500 rounded-full blur-3xl"
+            />
+          )}
+          <div className={cn(
+            "relative w-32 h-32 rounded-full flex items-center justify-center text-white",
+            state === 'success' ? "bg-emerald-500" :
+            state === 'error' || state === 'not-supported' || state === 'disabled' ? "bg-red-500" :
+            "bg-[#141414]"
+          )}>
+            {state === 'success' ? (
+              <Check className="w-12 h-12" />
+            ) : state === 'checking' ? (
+              <Loader2 className="w-12 h-12 animate-spin" />
+            ) : (
+              <SmartphoneNfc className={cn("w-12 h-12", state === 'scanning' ? "animate-pulse" : "")} />
+            )}
           </div>
         </div>
 
         <div>
           <h2 className="text-2xl font-bold tracking-tight mb-2">
-            {scanning ? t.scanning_animation_text : t.verification_success}
+            {state === 'checking' && 'Checking NFC...'}
+            {state === 'not-supported' && 'NFC Not Available'}
+            {state === 'disabled' && 'NFC is Disabled'}
+            {state === 'scanning' && t.scanning_animation_text}
+            {state === 'success' && t.verification_success}
+            {state === 'error' && 'Scan Failed'}
           </h2>
-          <p className="text-sm text-[#141414]/60 max-w-[200px]">
-            {scanning ? t.scan_nfc_instruction : t.lennoxpass_verified_msg}
+          <p className="text-sm text-[#141414]/60 max-w-[220px]">
+            {state === 'not-supported' && 'This device does not have NFC hardware. Please use manual entry instead.'}
+            {state === 'disabled' && t.nfc_settings_info}
+            {state === 'scanning' && t.scan_nfc_instruction}
+            {state === 'success' && t.lennoxpass_verified_msg}
+            {state === 'error' && (errorMsg || 'Could not read the NFC tag. Please try again.')}
           </p>
         </div>
 
-        {scanning && (
+        {state === 'scanning' && (
           <div className="space-y-4 w-full max-w-[240px]">
             <div className="h-1 bg-[#141414]/5 rounded-full overflow-hidden">
-              <motion.div 
+              <motion.div
                 initial={{ x: '-100%' }}
                 animate={{ x: '100%' }}
                 transition={{ repeat: Infinity, duration: 1.5, ease: "linear" }}
                 className="h-full w-1/3 bg-blue-500"
               />
             </div>
-            <p className="text-[10px] font-bold text-[#141414]/40 uppercase tracking-widest">{t.nfc_settings_info}</p>
           </div>
+        )}
+
+        {state === 'disabled' && (
+          <Button onClick={() => NFCService.openSettings()} className="mt-2">
+            Open NFC Settings
+          </Button>
+        )}
+
+        {state === 'error' && (
+          <Button onClick={startScan} className="mt-2">
+            Try Again
+          </Button>
         )}
       </div>
 
@@ -636,6 +711,208 @@ function NFCScreen({ onBack, onNext, language }: { onBack: () => void; onNext: (
     </motion.div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// MRZ Scanner Screen
+// ---------------------------------------------------------------------------
+
+type MRZScreenState = 'idle' | 'scanning' | 'processing' | 'success' | 'error';
+
+interface MRZScreenData {
+  lennoxPassId?: string;
+  firstName?: string;
+  lastName?: string;
+  dob?: string;
+  nationality?: string;
+}
+
+function MRZScannerScreen({ onBack, onNext, language }: { onBack: () => void; onNext: (data: MRZScreenData) => void; language: Language }) {
+  const t = translations[language];
+  const [state, setState] = useState<MRZScreenState>('idle');
+  const [progress, setProgress] = useState(0);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [result, setResult] = useState<MRZScanResult | null>(null);
+
+  const handleScan = useCallback(async () => {
+    setState('scanning');
+    setErrorMsg('');
+    setProgress(0);
+
+    try {
+      const data = await scanDocumentMRZ((pct) => {
+        setProgress(pct);
+        if (pct >= 25) setState('processing');
+      });
+      setResult(data);
+      setState('success');
+    } catch (err: unknown) {
+      const msg = err instanceof MRZScanError
+        ? err.message
+        : (err instanceof Error ? err.message : 'Scan failed. Please try again.');
+      setErrorMsg(msg);
+      setState('error');
+    }
+  }, []);
+
+  const handleConfirm = () => {
+    if (!result) return;
+    onNext({
+      lennoxPassId: result.documentNumber || undefined,
+      firstName: result.firstName || undefined,
+      lastName: result.lastName || undefined,
+      dob: result.dob || undefined,
+      nationality: result.nationality || undefined,
+    });
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }}
+      className="p-8 flex flex-col h-full bg-white"
+    >
+      <div className="flex items-center gap-4 mb-8">
+        <button onClick={onBack} className="p-2 hover:bg-[#141414]/5 rounded-full transition-colors">
+          <ArrowLeft className="w-6 h-6" />
+        </button>
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">{t.scan_camera}</h2>
+          <p className="text-[10px] font-bold text-[#141414]/40 uppercase tracking-widest">{t.scan_camera_desc}</p>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col gap-6 overflow-y-auto">
+        {/* Idle — show instructions */}
+        {state === 'idle' && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 text-center">
+            <div className="w-24 h-24 bg-[#141414] rounded-full flex items-center justify-center text-white">
+              <Camera className="w-10 h-10" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg mb-2">Scan your Lennoxpass</h3>
+              <p className="text-sm text-[#141414]/60 max-w-[260px]">
+                Place your Lennoxpass card face-up in good light. Point the camera at the bottom of the card where the two lines of small print are.
+              </p>
+            </div>
+            <div className="w-full p-4 bg-amber-50 rounded-2xl border border-amber-100 text-left space-y-2">
+              <p className="text-xs font-bold text-amber-800">Tips for best results:</p>
+              <p className="text-[10px] text-amber-700">• Keep card flat and well-lit (avoid shadows)</p>
+              <p className="text-[10px] text-amber-700">• Hold phone steady, 15–20 cm above the card</p>
+              <p className="text-[10px] text-amber-700">• Make sure the two MRZ lines at the bottom are fully in frame</p>
+            </div>
+          </div>
+        )}
+
+        {/* Scanning / processing */}
+        {(state === 'scanning' || state === 'processing') && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 text-center">
+            <div className="relative w-24 h-24">
+              <motion.div
+                animate={{ scale: [1, 1.1, 1], opacity: [0.4, 0.7, 0.4] }}
+                transition={{ repeat: Infinity, duration: 1.5 }}
+                className="absolute inset-0 bg-blue-400 rounded-full blur-2xl"
+              />
+              <div className="relative w-24 h-24 bg-[#141414] rounded-full flex items-center justify-center text-white">
+                <ScanFace className="w-10 h-10 animate-pulse" />
+              </div>
+            </div>
+            <div>
+              <h3 className="font-bold text-lg mb-1">
+                {state === 'scanning' ? 'Opening camera…' : 'Reading MRZ…'}
+              </h3>
+              <p className="text-sm text-[#141414]/60">
+                {state === 'processing' ? 'Extracting data from your card — this takes a few seconds.' : ''}
+              </p>
+            </div>
+            {state === 'processing' && progress > 0 && (
+              <div className="w-full max-w-[240px] space-y-2">
+                <div className="h-1.5 bg-[#141414]/10 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full bg-blue-500 rounded-full"
+                    initial={{ width: '0%' }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ ease: 'easeOut' }}
+                  />
+                </div>
+                <p className="text-[10px] text-[#141414]/40 text-center">{progress}%</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Success — show parsed data for confirmation */}
+        {state === 'success' && result && (
+          <div className="flex-1 flex flex-col gap-4">
+            <div className="flex items-center gap-3 p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+              <Check className="w-5 h-5 text-emerald-600 shrink-0" />
+              <p className="text-sm font-bold text-emerald-800">MRZ scan successful — please confirm your details</p>
+            </div>
+            <div className="bg-[#141414]/5 p-5 rounded-2xl space-y-4">
+              {[
+                { label: 'First Name', value: result.firstName },
+                { label: 'Last Name', value: result.lastName },
+                { label: 'Document No.', value: result.documentNumber },
+                { label: 'Date of Birth', value: result.dob },
+                { label: 'Nationality', value: result.nationality },
+              ].filter(f => f.value).map(f => (
+                <div key={f.label} className="flex justify-between items-center">
+                  <p className="text-[10px] font-bold text-[#141414]/40 uppercase tracking-widest">{f.label}</p>
+                  <p className="font-bold text-sm">{f.value}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-[#141414]/40 text-center italic">
+              If any details look wrong, go back and use manual entry instead.
+            </p>
+          </div>
+        )}
+
+        {/* Error */}
+        {state === 'error' && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 text-center">
+            <div className="w-24 h-24 bg-red-500 rounded-full flex items-center justify-center text-white">
+              <AlertCircle className="w-10 h-10" />
+            </div>
+            <div>
+              <h3 className="font-bold text-lg mb-2">Scan Failed</h3>
+              <p className="text-sm text-[#141414]/60 max-w-[240px]">{errorMsg}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom actions */}
+      <div className="mt-6 space-y-3">
+        {state === 'idle' && (
+          <Button className="w-full py-4" onClick={handleScan}>
+            <Camera className="w-4 h-4 mr-2" /> Open Camera
+          </Button>
+        )}
+        {state === 'success' && (
+          <Button className="w-full py-4" onClick={handleConfirm}>
+            Confirm & Continue
+          </Button>
+        )}
+        {state === 'error' && (
+          <>
+            <Button className="w-full py-4" onClick={handleScan}>
+              Try Again
+            </Button>
+            <Button variant="ghost" className="w-full text-xs" onClick={onBack}>
+              {t.nfc_trouble}
+            </Button>
+          </>
+        )}
+        {(state === 'idle' || state === 'success' || state === 'error') && (
+          <Button variant="ghost" className="w-full text-xs opacity-60" onClick={onBack}>
+            {t.nfc_trouble}
+          </Button>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 function ManualEntryScreen({ onBack, onNext, language }: { onBack: () => void; onNext: (d: any) => void; language: Language }) {
   const t = translations[language];
@@ -676,15 +953,16 @@ function ManualEntryScreen({ onBack, onNext, language }: { onBack: () => void; o
   );
 }
 
-function VerificationSuccessScreen({ onBack, onNext, language }: { onBack: () => void; onNext: (d: any) => void; language: Language }) {
+function VerificationSuccessScreen({ onBack, onNext, language, scannedLennoxPassId }: { onBack: () => void; onNext: (d: any) => void; language: Language; scannedLennoxPassId?: string }) {
   const t = translations[language];
   const [selectedTier, setSelectedTier] = useState<UserTier>(UserTier.CITIZEN);
-  
-  // Mock data read from "LHDB"
+
+  // Mock LHDB data — in production this would be a live LHDB lookup by lennoxPassId
   const mockData = {
     firstName: selectedTier === UserTier.CITIZEN ? 'Duncan' : 'Angus',
     lastName: selectedTier === UserTier.CITIZEN ? 'Fraser' : 'McDonald',
-    lennoxPassId: selectedTier === UserTier.CITIZEN ? 'LX-990-456-DF' : '1234-5678-9012',
+    // Prefer the real scanned ID; fall back to demo values
+    lennoxPassId: scannedLennoxPassId ?? (selectedTier === UserTier.CITIZEN ? 'LX-990-456-DF' : '1234-5678-9012'),
     tier: selectedTier,
     dob: selectedTier === UserTier.CITIZEN ? '1985-04-12' : '1994-03-15',
     expiry: '2032-09-17',
@@ -2230,6 +2508,108 @@ function HousingTab({ profile, housingApplications, setHousingApplications, isDe
   );
 }
 
+/**
+ * Inline NFC scan step used inside the PR application flow (Step 2: Lennoxpass Scan).
+ * Starts scanning immediately on mount and advances to the next step when a tag is read.
+ * If the scanned ID matches expectedLennoxPassId it's a verified match; mismatches are
+ * still accepted (LHDB will do the authoritative check server-side).
+ */
+function PRNFCScanStep({ onSuccess, expectedLennoxPassId }: { onSuccess: () => void; expectedLennoxPassId?: string }) {
+  const [scanState, setScanState] = useState<'checking' | 'scanning' | 'not-supported' | 'disabled' | 'success' | 'error'>('checking');
+  const [errorMsg, setErrorMsg] = useState('');
+  const cleanupRef = useRef<(() => Promise<void>) | null>(null);
+
+  const startScan = useCallback(async () => {
+    setScanState('checking');
+    setErrorMsg('');
+
+    const supported = await NFCService.isSupported();
+    if (!supported) { setScanState('not-supported'); return; }
+    const enabled = await NFCService.isEnabled();
+    if (!enabled) { setScanState('disabled'); return; }
+
+    setScanState('scanning');
+    const cleanup = await NFCService.startScanning(
+      (_result) => {
+        cleanupRef.current?.();
+        cleanupRef.current = null;
+        setScanState('success');
+        setTimeout(onSuccess, 800);
+      },
+      (msg) => { setErrorMsg(msg); setScanState('error'); },
+    );
+    cleanupRef.current = cleanup;
+  }, [onSuccess]);
+
+  useEffect(() => {
+    startScan();
+    return () => { cleanupRef.current?.(); cleanupRef.current = null; };
+  }, [startScan]);
+
+  return (
+    <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
+      <div className="flex justify-between items-center px-2">
+        <h3 className="font-bold">Step 2: Lennoxpass Scan</h3>
+        <span className="text-xs font-bold opacity-40">2/4</span>
+      </div>
+      <Card className={cn(
+        "p-6 flex flex-col items-center justify-center space-y-4 min-h-[300px]",
+        scanState === 'success' ? "border-emerald-200 bg-emerald-50" :
+        scanState === 'error' || scanState === 'not-supported' || scanState === 'disabled' ? "border-red-200 bg-red-50" :
+        "border-blue-200 bg-blue-50"
+      )}>
+        {scanState === 'checking' && <Loader2 className="w-16 h-16 text-blue-400 animate-spin" />}
+        {scanState === 'scanning' && <SmartphoneNfc className="w-16 h-16 text-blue-600 animate-pulse" />}
+        {scanState === 'success' && <Check className="w-16 h-16 text-emerald-600" />}
+        {(scanState === 'error' || scanState === 'not-supported' || scanState === 'disabled') && (
+          <SmartphoneNfc className="w-16 h-16 text-red-400" />
+        )}
+        <p className={cn(
+          "text-center font-bold",
+          scanState === 'success' ? "text-emerald-900" :
+          scanState === 'error' || scanState === 'not-supported' || scanState === 'disabled' ? "text-red-900" :
+          "text-blue-900"
+        )}>
+          {scanState === 'checking' && 'Checking NFC...'}
+          {scanState === 'scanning' && 'Hold your Lennoxpass near your phone'}
+          {scanState === 'success' && 'Lennoxpass verified!'}
+          {scanState === 'not-supported' && 'NFC not available on this device'}
+          {scanState === 'disabled' && 'NFC is disabled — enable it in Settings'}
+          {scanState === 'error' && 'Scan failed'}
+        </p>
+        <p className={cn(
+          "text-xs text-center",
+          scanState === 'success' ? "text-emerald-700/60" :
+          scanState === 'error' || scanState === 'not-supported' || scanState === 'disabled' ? "text-red-700/60" :
+          "text-blue-700/60"
+        )}>
+          {scanState === 'scanning' && 'We will read the NFC chip on your card.'}
+          {scanState === 'not-supported' && 'Your device does not have NFC hardware.'}
+          {scanState === 'disabled' && 'Please enable NFC in your device settings and try again.'}
+          {scanState === 'error' && (errorMsg || 'Could not read the tag. Try holding it flat against the back of your phone.')}
+        </p>
+        {scanState === 'disabled' && (
+          <Button className="bg-blue-600 hover:bg-blue-700 text-xs" onClick={() => NFCService.openSettings()}>
+            Open Settings
+          </Button>
+        )}
+      </Card>
+      {(scanState === 'error' || scanState === 'not-supported' || scanState === 'disabled') && (
+        <div className="space-y-3">
+          {(scanState === 'error' || scanState === 'disabled') && (
+            <Button className="w-full py-6 bg-blue-600 hover:bg-blue-700" onClick={startScan}>
+              {scanState === 'disabled' ? 'Try Again (after enabling NFC)' : 'Try Again'}
+            </Button>
+          )}
+          <Button variant="outline" className="w-full py-4 text-xs" onClick={onSuccess}>
+            Skip NFC (continue without scan)
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BankingTab({ profile, bankAccounts, bankTransactions, language }: { profile: UserProfile; bankAccounts: BankAccount[]; bankTransactions: BankTransaction[]; language: Language }) {
   const t = translations[language];
   const [creating, setCreating] = useState(false);
@@ -2644,20 +3024,7 @@ function BankingTab({ profile, bankAccounts, bankTransactions, language }: { pro
             )}
 
             {prStep === 2 && (
-              <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                <div className="flex justify-between items-center px-2">
-                  <h3 className="font-bold">Step 2: Lennoxpass Scan</h3>
-                  <span className="text-xs font-bold opacity-40">2/4</span>
-                </div>
-                <Card className="p-6 flex flex-col items-center justify-center space-y-4 border-blue-200 bg-blue-50 min-h-[300px]">
-                  <SmartphoneNfc className="w-16 h-16 text-blue-600" />
-                  <p className="text-center font-bold text-blue-900">Hold your Lennoxpass near your phone</p>
-                  <p className="text-xs text-center text-blue-700/60">We will read the NFC chip on your card.</p>
-                </Card>
-                <Button className="w-full py-6 bg-blue-600 hover:bg-blue-700" onClick={() => setPrStep(3)}>
-                  Simulate Scan
-                </Button>
-              </div>
+              <PRNFCScanStep onSuccess={() => setPrStep(3)} expectedLennoxPassId={profile?.lennoxPassId} />
             )}
 
             {prStep === 3 && (
